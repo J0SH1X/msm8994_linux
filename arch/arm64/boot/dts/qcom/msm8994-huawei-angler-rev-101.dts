@@ -32,6 +32,11 @@
 		#size-cells = <2>;
 		ranges;
 
+		spin-table@7000000 {
+			reg = <0x00 0x7000000 0x00 0x1000>;
+			no-map;
+		};
+
 		cont_splash_mem: memory@3401000 {
 			reg = <0 0x03401000 0 0x1000000>;
 			no-map;
@@ -60,6 +65,46 @@
 			debounce-interval = <15>;
 		};
 	};
+};
+
+&cpu0 {
+	enable-method = "spin-table";
+	cpu-release-addr = /bits/ 64 <0>;
+};
+
+&cpu1 {
+	enable-method = "spin-table";
+	cpu-release-addr = /bits/ 64 <0>;
+};
+
+&cpu2 {
+	enable-method = "spin-table";
+	cpu-release-addr = /bits/ 64 <0>;
+};
+
+&cpu3 {
+	enable-method = "spin-table";
+	cpu-release-addr = /bits/ 64 <0>;
+};
+
+&cpu4 {
+	enable-method = "spin-table";
+	cpu-release-addr = /bits/ 64 <0>;
+};
+
+&cpu5 {
+	enable-method = "spin-table";
+	cpu-release-addr = /bits/ 64 <0>;
+};
+
+&cpu6 {
+	enable-method = "spin-table";
+	cpu-release-addr = /bits/ 64 <0>;
+};
+
+&cpu7 {
+	enable-method = "spin-table";
+	cpu-release-addr = /bits/ 64 <0>;
 };
 
 &pm8994_resin {
