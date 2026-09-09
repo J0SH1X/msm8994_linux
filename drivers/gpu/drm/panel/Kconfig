@@ -1120,6 +1120,13 @@ config DRM_PANEL_SAMSUNG_AMS567DJ06
 	    Samsung AMS567DJ06 (found in Lumia 950XL, 1440x2560@60Hz, dualDSI)
 		Samsung AMS5208R08 (found in Lumia 950, 1440x2560@60Hz, dualDSI)
 
+config DRM_PANEL_SAMSUNG_S6E3HA3X01
+	tristate "Samsung S6E3HA3X01 panel driver"
+	depends on OF
+	depends on DRM_MIPI_DSI
+	help
+	  Say Y if you want to enable support for the Samsung AMOLED
+	  S6E3HA3X01 panel found on the Google Nexus 6P.
 
 config DRM_PANEL_SEIKO_43WVF1G
 	tristate "Seiko 43WVF1G panel"
