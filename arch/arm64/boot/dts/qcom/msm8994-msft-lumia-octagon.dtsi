@@ -1120,4 +1120,15 @@
 		bias-pull-down;
 		input-enable;
 	};
+	};
+
+/* 3.10 vreg-1.8 is PM8994 L12. pciephy1 is 8994-only (cityman). */
+&pciephy0 {
+	vdda-supply = <&vreg_l12a_1p8>;
+};
+
+/* Modem (MSS): vdd_mss = PM8994 S7, vdd_pll = L12 (1.8 V). */
+&mss_pil {
+	status = "okay";
+	pll-supply = <&vreg_s7a_1p0>;
 };
