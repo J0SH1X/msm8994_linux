@@ -194,3 +194,11 @@ sphinx_*/
 
 # bc language scripts (not LLVM bitcode)
 !kernel/time/timeconst.bc
+
+
+out
+zImage
+Image.gz-dtb
+bootimg.cfg
+initrd.img
+mainline_boot.img
