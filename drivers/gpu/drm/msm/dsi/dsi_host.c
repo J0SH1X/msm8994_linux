@@ -1458,10 +1458,27 @@ static int dsi_cmd_dma_tx(struct msm_dsi_host *msm_host, int len)
 		ret = wait_for_completion_timeout(&msm_host->dma_comp,
 					msecs_to_jiffies(200));
 		DBG("ret=%d", ret);
-		if (ret == 0)
+		if (ret == 0) {
 			ret = -ETIMEDOUT;
-		else
+			dev_err(&msm_host->pdev->dev,
+				"cmd tx TIMEOUT id=%d dma_base=0x%llx len=%d\n"
+				"CTRL=%08x DMA_BASE=%08x DMA_LEN=%08x TRIG=%08x CMD_DMA_CTRL=%08x\n"
+				"STATUS0=%08x FIFO=%08x TOUT=%08x CLK=%08x INTR=%08x LANE=%08x\n",
+				msm_host->id, dma_base, len,
+				dsi_read(msm_host, REG_DSI_CTRL),
+				dsi_read(msm_host, REG_DSI_DMA_BASE),
+				dsi_read(msm_host, REG_DSI_DMA_LEN),
+				dsi_read(msm_host, REG_DSI_TRIG_DMA),
+				dsi_read(msm_host, REG_DSI_CMD_DMA_CTRL),
+				dsi_read(msm_host, REG_DSI_STATUS0),
+				dsi_read(msm_host, REG_DSI_FIFO_STATUS),
+				dsi_read(msm_host, REG_DSI_TIMEOUT_STATUS),
+				dsi_read(msm_host, REG_DSI_CLK_STATUS),
+				dsi_read(msm_host, REG_DSI_INTR_CTRL),
+				dsi_read(msm_host, REG_DSI_LANE_STATUS));
+		} else {
 			ret = len;
+		}
 	} else {
 		ret = len;
 	}

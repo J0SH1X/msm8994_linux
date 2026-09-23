@@ -432,6 +432,13 @@ static int __maybe_unused mdss_runtime_suspend(struct device *dev)
 
 	DBG("");
 
+	/* DEBUG(angler): keep the MDSS power domain/iface clocks on. The
+	 * runtime-suspend churn during deferred probe raced a DSI probe's
+	 * MMIO read and caused a fatal synchronous external abort.
+	 */
+	if (1)
+		return -EBUSY;
+
 	return msm_mdss_disable(mdss);
 }
 

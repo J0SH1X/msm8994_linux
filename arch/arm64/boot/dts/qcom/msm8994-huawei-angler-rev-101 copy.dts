@@ -303,7 +303,7 @@
 };
 
 &gpu {
-	status = "disabled";
+	status = "okay";
 };
 
 &mdss {
@@ -325,14 +325,14 @@
 	pinctrl-1 = <&mdss_dsi_sleep &mdss_te_sleep>;
 
 	qcom,dual-dsi-mode;
+	qcom,sync-dual-dsi;
 	qcom,master-dsi;
 
 	panel@0 {
-		compatible = "mdss,dualmipi0";
+		compatible = "mdss,s6e3ha3x01";
 		reg = <0>;
 
-		vci-supply = <&pm8994_l19>;
-		reset-gpios = <&tlmm 78 GPIO_ACTIVE_LOW>;
+		reset-gpios = <&tlmm 77 GPIO_ACTIVE_LOW>;
 
 		ports {
 			#address-cells = <1>;
@@ -341,7 +341,7 @@
 			port@0 {
 				reg = <0>;
 
-				panel_in0: endpoint {
+				sergej_in0: endpoint {
 					remote-endpoint = <&dsi0_out>;
 				};
 			};
@@ -349,7 +349,7 @@
 			port@1 {
 				reg = <1>;
 
-				panel_in1: endpoint {
+				sergej_in1: endpoint {
 					remote-endpoint = <&dsi1_out>;
 				};
 			};
@@ -359,7 +359,7 @@
 
 &dsi0_out {
 	data-lanes = <0 1 2 3>;
-	remote-endpoint = <&panel_in0>;
+	remote-endpoint = <&sergej_in0>;
 };
 
 &dsi0_phy {
@@ -380,14 +380,14 @@
 	vdd-supply = <&pm8994_l14>;
 
 	qcom,dual-dsi-mode;
+	qcom,sync-dual-dsi;
 
-	/* PLL0 drives both DSI link clocks in bonded (dual) DSI mode */
 	assigned-clock-parents = <&dsi0_phy 0>, <&dsi0_phy 1>;
 };
 
 &dsi1_out {
 	data-lanes = <0 1 2 3>;
-	remote-endpoint = <&panel_in1>;
+	remote-endpoint = <&sergej_in1>;
 };
 
 &dsi1_phy {

@@ -202,3 +202,4 @@ Image.gz-dtb
 bootimg.cfg
 initrd.img
 mainline_boot.img
+dmesg.txt

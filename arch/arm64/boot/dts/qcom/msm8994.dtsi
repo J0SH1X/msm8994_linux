@@ -840,6 +840,7 @@
 			#size-cells = <1>;
 			#iommu-cells = <1>;
 			ranges = <0 0xfdc8c000 0x3000>;
+			status = "disabled";
 
 			clocks = <&mmcc VENUS0_AHB_CLK>,
 				 <&mmcc VENUS0_AXI_CLK>,
@@ -1395,10 +1396,12 @@
 				compatible = "qcom,dsi-phy-20nm";
 				reg = 	<0xfd998300 0x200>,
 					<0xfd998500 0x280>,
-				      	<0xfd998780 0x30>;
+				      	<0xfd998780 0x30>,
+					<0xfd9a0300 0x500>;
 				reg-names = "dsi_pll",
 					    "dsi_phy",
-					    "dsi_phy_regulator";
+					    "dsi_phy_regulator",
+					    "dsi_pll_1";
 
 				#clock-cells = <1>;
 				#phy-cells = <0>;
