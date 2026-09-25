@@ -85,10 +85,30 @@ int msm_framebuffer_prepare(struct drm_framebuffer *fb, bool needs_dirtyfb)
 		return 0;
 
 	for (i = 0; i < n; i++) {
+		int idret;
+
 		msm_gem_vma_get(fb->obj[i]);
-		ret = msm_gem_get_and_pin_iova(fb->obj[i], vm, &msm_fb->iova[i]);
+
+		/*
+		 * sid 0 bypasses the MDP context bank, so the fetch
+		 * pipe uses the scanout IOVA as a physical address.  Try the
+		 * identity pin (iova == phys) first: only a physically
+		 * contiguous buffer can honour it, everything else gets the
+		 * regular translated pin below.
+		 */
+		idret = msm_gem_get_and_pin_iova_identity(fb->obj[i], vm,
+							  &msm_fb->iova[i]);
+		if (idret) {
+			msm_fb->iova[i] = 0;
+			ret = msm_gem_get_and_pin_iova(fb->obj[i], vm,
+						      &msm_fb->iova[i]);
+		} else {
+			ret = 0;
+		}
+
 		drm_dbg_state(fb->dev, "FB[%u]: iova[%d]: %08llx (%d)\n",
 			      fb->base.id, i, msm_fb->iova[i], ret);
+
 		if (ret)
 			return ret;
 	}

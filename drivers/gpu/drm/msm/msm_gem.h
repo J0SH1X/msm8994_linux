@@ -216,6 +216,14 @@ struct msm_gem_object {
 	struct list_head node;
 
 	struct page **pages;
+	/*
+	 * When set, pages[] was carved out of one physically contiguous
+	 * block (CMA) starting at contig, and must be released with
+	 * dma_free_contiguous() instead of drm_gem_put_pages().  Needed
+	 * because the MDP's stream bypasses the SMMU on msm8994, so the
+	 * scanout IOVA is used as a physical address.
+	 */
+	struct page *contig;
 	struct sg_table *sgt;
 	void *vaddr;
 
@@ -277,6 +285,8 @@ int msm_gem_get_and_pin_iova_range(struct drm_gem_object *obj,
 				   u64 range_start, u64 range_end);
 int msm_gem_get_and_pin_iova(struct drm_gem_object *obj, struct drm_gpuvm *vm,
 			     uint64_t *iova);
+int msm_gem_get_and_pin_iova_identity(struct drm_gem_object *obj,
+				      struct drm_gpuvm *vm, uint64_t *iova);
 void msm_gem_unpin_iova(struct drm_gem_object *obj, struct drm_gpuvm *vm);
 void msm_gem_pin_obj_locked(struct drm_gem_object *obj);
 struct page **msm_gem_get_pages_locked(struct drm_gem_object *obj, unsigned madv);

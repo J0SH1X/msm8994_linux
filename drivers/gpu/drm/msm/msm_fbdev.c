@@ -142,10 +142,26 @@ int msm_fbdev_driver_fbdev_probe(struct drm_fb_helper *helper,
 	 * in panic (ie. lock-safe, etc) we could avoid pinning the
 	 * buffer now:
 	 */
-	ret = msm_gem_get_and_pin_iova(bo, priv->kms->vm, &paddr);
+	/*
+	 * The MDP's stream (sid 0) never enters context bank 0 on msm8994 -
+	 * SMR/S2CR are TrustZone-owned - so the fetch pipe uses the IOVA as a
+	 * physical address.  A CMA-backed BO is physically contiguous, so pin
+	 * it at iova == phys: correct for a bypassing stream as well as for a
+	 * translating one.  If the BO turned out not to be contiguous (or the
+	 * range cannot be honoured), fall back to a translated pin.
+	 *
+	 * Note that msm_framebuffer_prepare() pins again for scanout: the
+	 * handle delete below drops the last VMA reference, so that is the
+	 * pin the hardware actually ends up using.
+	 */
+	ret = msm_gem_get_and_pin_iova_identity(bo, priv->kms->vm, &paddr);
 	if (ret) {
-		drm_err(dev, "failed to get buffer obj iova: %d\n", ret);
-		goto err_drm_client_buffer_delete;
+		DBG("identity pin unavailable (%d), using translated pin", ret);
+		ret = msm_gem_get_and_pin_iova(bo, priv->kms->vm, &paddr);
+		if (ret) {
+			drm_err(dev, "failed to get buffer obj iova: %d\n", ret);
+			goto err_drm_client_buffer_delete;
+		}
 	}
 
 	DBG("fbi=%p, dev=%p", fbi, dev);

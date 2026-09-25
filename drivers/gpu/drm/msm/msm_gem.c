@@ -195,8 +195,61 @@ static struct page **get_pages(struct drm_gem_object *obj)
 		struct drm_device *dev = obj->dev;
 		struct page **p;
 		size_t npages = obj->size >> PAGE_SHIFT;
+		struct page *contig = NULL;
 
-		p = drm_gem_get_pages(obj);
+		/*
+		 * On msm8994 the MDP's stream (sid 0) never reaches context
+		 * bank 0 - the SMR/S2CR that would steer it there are
+		 * TrustZone-owned (GR0 is XPU protected), so the fetch pipe
+		 * uses the IOVA as a plain physical address.  A scanout BO
+		 * that is physically contiguous *and* pinned at iova == phys
+		 * therefore works whether or not the SMMU translates.
+		 * MSM_BO_STOLEN (passed by msm_fbdev) asks for that; if CMA
+		 * cannot give us a contiguous block we fall back to shmem
+		 * pages and a translated pin.
+		 */
+		if (msm_obj->flags & MSM_BO_STOLEN) {
+			contig = dma_alloc_contiguous(dev->dev, obj->size,
+						      GFP_KERNEL | __GFP_NOWARN |
+						      __GFP_ZERO);
+			if (contig) {
+				phys_addr_t base = page_to_phys(contig);
+				unsigned long i;
+
+				for (i = 0; i < npages; i++) {
+					if (page_to_phys(contig + i) !=
+					    base + i * PAGE_SIZE)
+						break;
+				}
+				if (i != npages) {
+					dev_dbg(dev->dev,
+						"CMA block at %pa not contiguous (%lu/%zu), falling back\n",
+						&base, i, npages);
+					dma_free_contiguous(dev->dev, contig,
+							    obj->size);
+					contig = NULL;
+				}
+			}
+		}
+
+		if (contig) {
+			unsigned long i;
+
+			p = kvmalloc_array(npages, sizeof(*p), GFP_KERNEL);
+			if (p) {
+				for (i = 0; i < npages; i++)
+					p[i] = contig + i;
+				memset(page_address(contig), 0, obj->size);
+				msm_obj->contig = contig;
+			} else {
+				dma_free_contiguous(dev->dev, contig,
+						    obj->size);
+				contig = NULL;
+			}
+		}
+
+		if (!contig)
+			p = drm_gem_get_pages(obj);
 
 		if (IS_ERR(p)) {
 			DRM_DEV_ERROR(dev->dev, "could not get pages: %ld\n",
@@ -256,7 +309,15 @@ static void put_pages(struct drm_gem_object *obj)
 
 		update_device_mem(obj->dev->dev_private, -obj->size);
 
-		drm_gem_put_pages(obj, msm_obj->pages, true, false);
+		if (msm_obj->contig) {
+			/* pages[] aliases one CMA block; do not put refs */
+			dma_free_contiguous(obj->dev->dev, msm_obj->contig,
+					    obj->size);
+			msm_obj->contig = NULL;
+			kvfree(msm_obj->pages);
+		} else {
+			drm_gem_put_pages(obj, msm_obj->pages, true, false);
+		}
 
 		msm_obj->pages = NULL;
 		update_lru(obj);
@@ -572,6 +633,49 @@ int msm_gem_get_and_pin_iova(struct drm_gem_object *obj, struct drm_gpuvm *vm,
 			     uint64_t *iova)
 {
 	return msm_gem_get_and_pin_iova_range(obj, vm, iova, 0, U64_MAX);
+}
+
+/*
+ * Pin the object at iova == its own first-page physical address.
+ *
+ * On msm8994 the MDP's stream never enters context bank 0 (SMR/S2CR are
+ * TrustZone-owned), so the fetch pipe uses the scanout IOVA as a plain
+ * physical address.  Pinning a physically contiguous buffer onto itself is
+ * then the only mapping that works - and it stays correct if the SMMU does
+ * translate, since the table ends up mapping phys -> phys.
+ *
+ * Pages are materialised here, under the object/vm lock, because the
+ * contiguous block does not exist until get_pages() runs.  Returns -EINVAL
+ * if the object is not physically contiguous so callers can fall back to
+ * msm_gem_get_and_pin_iova().
+ */
+int msm_gem_get_and_pin_iova_identity(struct drm_gem_object *obj,
+				      struct drm_gpuvm *vm, uint64_t *iova)
+{
+	struct drm_exec exec;
+	struct page **pages;
+	phys_addr_t phys;
+	int ret;
+
+	msm_gem_lock_vm_and_obj(&exec, obj, vm);
+
+	pages = msm_gem_get_pages_locked(obj, MSM_MADV_WILLNEED);
+	if (IS_ERR(pages)) {
+		ret = PTR_ERR(pages);
+		goto out;
+	}
+
+	if (!to_msm_bo(obj)->contig) {
+		ret = -EINVAL;
+		goto out;
+	}
+
+	phys = page_to_phys(pages[0]);
+	ret = get_and_pin_iova_range_locked(obj, vm, iova, phys,
+					    phys + obj->size);
+out:
+	drm_exec_fini(&exec);     /* drop locks */
+	return ret;
 }
 
 /*
