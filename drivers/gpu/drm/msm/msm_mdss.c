@@ -432,11 +432,13 @@ static int __maybe_unused mdss_runtime_suspend(struct device *dev)
 
 	DBG("");
 
-	/* DEBUG(angler): keep the MDSS power domain/iface clocks on. The
-	 * runtime-suspend churn during deferred probe raced a DSI probe's
-	 * MMIO read and caused a fatal synchronous external abort.
+	/*
+	 * Runtime suspend is deliberately refused: collapsing the MDSS power
+	 * domain while deferred probe was still touching the controller raced
+	 * a DSI MMIO read and caused a fatal synchronous external abort.  The
+	 * domain and the iface clocks stay up for the lifetime of the driver.
 	 */
-	if (1)
+	if (mdss)
 		return -EBUSY;
 
 	return msm_mdss_disable(mdss);
