@@ -138,6 +138,7 @@ struct dsi_pll_20nm {
 	u32 cache_pll_trim_codes[2];
 	u32 ndiv;		/* 1..15 */
 	u32 hr_oclk3;		/* 1..255, HW stores div - 1 */
+	u8 mux_index;
 
 	bool is_init_locked;
 	bool pll_en_90_phase;
@@ -610,6 +611,8 @@ static int dsi_20nm_byte_mux_set_parent(struct clk_hw *hw, u8 index)
 	u32 val;
 	int rc;
 
+	pll->mux_index = index;
+
 	if (!pll_20nm_analog_writable(pll))
 		return 0;
 
@@ -629,10 +632,18 @@ static int dsi_20nm_byte_mux_set_parent(struct clk_hw *hw, u8 index)
 	return 0;
 }
 
+static int dsi_20nm_byte_mux_prepare(struct clk_hw *hw)
+{
+	struct dsi_pll_20nm *pll = to_pll_20nm_mux(hw);
+
+	return dsi_20nm_byte_mux_set_parent(hw, pll->mux_index);
+}
+
 static const struct clk_ops clk_ops_dsi_20nm_byte_mux = {
 	.determine_rate = __clk_mux_determine_rate_closest,
 	.set_parent = dsi_20nm_byte_mux_set_parent,
 	.get_parent = dsi_20nm_byte_mux_get_parent,
+	.prepare = dsi_20nm_byte_mux_prepare,
 };
 
 /*
@@ -698,10 +709,36 @@ static int dsi_20nm_ndiv_determine_rate(struct clk_hw *hw,
 	return divider_determine_rate(hw, req, NULL, 4, CLK_DIVIDER_ONE_BASED);
 }
 
+static int dsi_20nm_ndiv_prepare(struct clk_hw *hw)
+{
+	struct dsi_pll_20nm *pll = to_pll_20nm_ndiv(hw);
+	unsigned long flags;
+	u32 val;
+	int rc;
+
+	if (!pll_20nm_analog_writable(pll))
+		return 0;
+
+	rc = pll_20nm_resource_enable(pll, true);
+	if (rc)
+		return rc;
+
+	spin_lock_irqsave(&pll->postdiv_lock, flags);
+	val = readl(pll->phy->pll_base + MMSS_DSI_PHY_PLL_POST_DIVIDER_CONTROL);
+	val &= ~div_mask(4);
+	val |= pll->ndiv;
+	writel(val, pll->phy->pll_base + MMSS_DSI_PHY_PLL_POST_DIVIDER_CONTROL);
+	spin_unlock_irqrestore(&pll->postdiv_lock, flags);
+
+	pll_20nm_resource_enable(pll, false);
+	return 0;
+}
+
 static const struct clk_ops clk_ops_dsi_20nm_ndiv = {
 	.recalc_rate = dsi_20nm_ndiv_recalc_rate,
 	.set_rate = dsi_20nm_ndiv_set_rate,
 	.determine_rate = dsi_20nm_ndiv_determine_rate,
+	.prepare = dsi_20nm_ndiv_prepare,
 };
 
 /*
@@ -722,7 +759,7 @@ static unsigned long dsi_20nm_hr_oclk3_recalc_rate(struct clk_hw *hw,
 
 	div = readl(pll->phy->pll_base + MMSS_DSI_PHY_PLL_HR_OCLK3_DIVIDER) + 1;
 	pll_20nm_resource_enable(pll, false);
-	if (div)
+	if (div > 1)
 		pll->hr_oclk3 = div;
 
 	return DIV_ROUND_UP_ULL((u64)parent_rate, pll->hr_oclk3 ?: 1);
@@ -758,10 +795,29 @@ static int dsi_20nm_hr_oclk3_determine_rate(struct clk_hw *hw,
 	return divider_determine_rate(hw, req, NULL, 8, 0);
 }
 
+static int dsi_20nm_hr_oclk3_prepare(struct clk_hw *hw)
+{
+	struct dsi_pll_20nm *pll = to_pll_20nm_hr_oclk3(hw);
+	int rc;
+
+	if (!pll_20nm_analog_writable(pll) || !pll->hr_oclk3)
+		return 0;
+
+	rc = pll_20nm_resource_enable(pll, true);
+	if (rc)
+		return rc;
+
+	writel(pll->hr_oclk3 - 1,
+	       pll->phy->pll_base + MMSS_DSI_PHY_PLL_HR_OCLK3_DIVIDER);
+	pll_20nm_resource_enable(pll, false);
+	return 0;
+}
+
 static const struct clk_ops clk_ops_dsi_20nm_hr_oclk3 = {
 	.recalc_rate = dsi_20nm_hr_oclk3_recalc_rate,
 	.set_rate = dsi_20nm_hr_oclk3_set_rate,
 	.determine_rate = dsi_20nm_hr_oclk3_determine_rate,
+	.prepare = dsi_20nm_hr_oclk3_prepare,
 };
 
 static int pll_20nm_register(struct dsi_pll_20nm *pll, struct clk_hw **provided_clocks)
@@ -902,6 +958,7 @@ static int dsi_pll_20nm_init(struct msm_dsi_phy *phy)
 	pll->pll_en_90_phase = true;
 	pll->ndiv = 1;
 	pll->hr_oclk3 = 1;
+	pll->mux_index = 1;
 	spin_lock_init(&pll->postdiv_lock);
 	mutex_init(&pll->res_lock);
 

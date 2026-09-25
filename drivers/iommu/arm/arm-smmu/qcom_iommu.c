@@ -272,15 +272,6 @@ static const struct iommu_flush_ops qcom_flush_ops = {
 	.tlb_add_page	= qcom_iommu_tlb_add_page,
 };
 
-static bool qcom_iommu_is_gpu(const struct device *dev)
-{
-	return dev && dev->of_node &&
-	       (of_device_is_compatible(dev->of_node,
-					"qcom,msm8974-gpu-iommu") ||
-		of_device_is_compatible(dev->of_node,
-					"qcom,msm8994-gpu-iommu"));
-}
-
 static bool qcom_iommu_is_msm8994_gpu(const struct device *dev)
 {
 	return dev && dev->of_node &&

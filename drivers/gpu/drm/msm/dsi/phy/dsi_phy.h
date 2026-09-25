@@ -123,6 +123,8 @@ struct msm_dsi_phy {
 
 	struct clk_hw_onecell_data *provided_clocks;
 
+	u8 dphy_panel_timings[12];
+	bool has_dphy_panel_timings;
 	bool state_saved;
 };
 

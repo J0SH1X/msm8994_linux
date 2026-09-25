@@ -9,9 +9,13 @@
 
 #include "pm8994.dtsi"
 #include "pmi8994.dtsi"
+#include <dt-bindings/soc/qcom,apr.h>
+#include <dt-bindings/sound/qcom,q6asm.h>
+#include <dt-bindings/sound/qcom,q6dsp-lpass-ports.h>
 #include <dt-bindings/gpio/gpio.h>
 #include <dt-bindings/input/gpio-keys.h>
 #include <dt-bindings/pinctrl/qcom,pmic-gpio.h>
+#include <dt-bindings/interrupt-controller/irq.h>
 
 /*
  * Delete all generic (msm8994.dtsi) reserved
@@ -19,6 +23,7 @@
  */
 /delete-node/ &adsp_mem;
 /delete-node/ &audio_mem;
+/delete-node/ &dfps_data_mem;
 /delete-node/ &cont_splash_mem;
 /delete-node/ &mba_mem;
 /delete-node/ &mpss_mem;
@@ -44,6 +49,21 @@
 		#address-cells = <2>;
 		#size-cells = <2>;
 		ranges;
+	};
+
+	clocks {
+		compatible = "simple-bus";
+
+		divclk1: divclk1 {
+			compatible = "gpio-gate-clock";
+			#clock-cells = <0>;
+
+			clocks = <&rpmcc RPM_SMD_DIV_CLK1>;
+			enable-gpios = <&pm8994_gpios 15 0>;
+
+			pinctrl-names = "default";
+			pinctrl-0 = <&audio_mclk>;
+		};
 	};
 
 	clocks {
@@ -85,7 +105,7 @@
 			label = "Camera Focus";
 			gpios = <&pm8994_gpios 5 GPIO_ACTIVE_LOW>;
 			linux,input-type = <1>;
-			linux,code = <KEY_VOLUMEUP>;
+			linux,code = <KEY_CAMERA_FOCUS>;
 			wakeup-source;
 			debounce-interval = <15>;
 		};
@@ -101,7 +121,7 @@
 
 		event-hall-front-sensor {
 			label = "Hall Effect Front Sensor";
-			gpios = <&tlmm 42 GPIO_ACTIVE_HIGH>;
+			gpios = <&tlmm 42 GPIO_ACTIVE_LOW>;
 			linux,input-type = <EV_SW>;
 			linux,code = <SW_LID>;
 			linux,can-disable;
@@ -109,7 +129,7 @@
 
 		event-hall-back-sensor {
 			label = "Hall Effect Back Sensor";
-			gpios = <&tlmm 75 GPIO_ACTIVE_HIGH>;
+			gpios = <&tlmm 75 GPIO_ACTIVE_LOW>;
 			linux,input-type = <EV_SW>;
 			linux,code = <SW_MACHINE_COVER>;
 			linux,can-disable;
@@ -125,6 +145,18 @@
 		 * using JTAG for the Qualcomm Peripheral Image regions.
 		 */
 
+		audio_mem: audio-pool {
+			compatible = "shared-dma-pool";
+			size = <0x0 0x800000>;
+			alignment = <0x0 0x400000>;
+			reusable;
+
+		};
+
+		/* For testing, we are using lk2nd. However once this is done,
+		 * we should revert and use the original UEFI memory layout.
+		 * For now, comment these out as it just reserves memory for no reason.
+		-------------------------------------------------------------------------------
 		uefi_mem: memory@200000 {
 			reg = <0 0x00200000 0 0x100000>;
 			no-map;
@@ -187,6 +219,12 @@
 
 		rescached_mem: memory@400000 {
 			reg = <0 0x00c50000 0 0xb0000>;
+			no-map;
+		};
+		*/
+
+		cont_splash_mem: memory@3400000 {
+			reg = <0 0x03400000 0 0xc00000>;
 			no-map;
 		};
 
@@ -267,6 +305,53 @@
 			reg = <0 0x0ef00000 0 0x300000>;
 			no-map;
 		};
+
+		ramoops@d9d00000 {
+			compatible = "ramoops";
+			reg = <0x0 0xd9d00000 0x0 0x100000>;
+			record-size = <0x20000>;
+			console-size = <0x80000>;
+			pmsg-size = <0x20000>;
+			ecc-size = <0>;
+			max-reason = <3>;
+		};
+
+	};
+
+	sound {
+		compatible = "qcom,msm8994-sndcard";
+		model = "Octagon";
+
+		/* lpaif_quat_mode_muxsel: machine selects I2S vs PCM. */
+		reg = <0x0 0xfe037000 0x0 0x4>;
+		reg-names = "lpaif_quat_mode_muxsel";
+
+		pinctrl-names = "default";
+		pinctrl-0 = <&quat_mi2s_default>;
+
+		mm1-dai-link {
+			link-name = "MultiMedia1";
+
+			cpu {
+				sound-dai = <&q6asmdai MSM_FRONTEND_DAI_MULTIMEDIA1>;
+			};
+		};
+
+		speaker-dai-link {
+			link-name = "Speaker";
+
+			cpu {
+				sound-dai = <&q6afedai QUATERNARY_MI2S_RX>;
+			};
+
+			platform {
+				sound-dai = <&q6routing>;
+			};
+
+			codec {
+				sound-dai = <&tas2553>;
+			};
+		};
 	};
 };
 
@@ -281,6 +366,14 @@
 
 		interrupt-parent = <&tlmm>;
 		interrupts = <77 IRQ_TYPE_EDGE_FALLING>;
+
+		vdd-supply = <&vreg_l22a_3p0>;
+		reset-gpios = <&tlmm 38 GPIO_ACTIVE_LOW>;
+
+		syna,startup-delay-ms = <60>;
+
+		pinctrl-names = "default";
+		pinctrl-0 = <&touch_pins>;
 
 		rmi4-f01@1 {
 			reg = <0x01>;
@@ -307,6 +400,8 @@
 	 * be written for this device.
 	 */
 	tas2553: tas2553@40 {
+		#sound-dai-cells = <0>;
+
 		compatible = "ti,tas2552";
 		reg = <0x40>;
 
@@ -440,15 +535,26 @@
 	 * the device firmware with a specific bitstream
 	 * enabling USB Type C PHY functionality.
 	 * Communication is done via a proprietary protocol over SPI.
-	 *
-	 * TODO: Once a proper driver is available, replace this.
 	 */
 	uc120: ice5lp2k@0 {
-		compatible = "lattice,ice40-fpga-mgr";
+		compatible = "lattice,uc120";
 		reg = <0>;
 		spi-max-frequency = <5000000>;
-		cdone-gpios = <&tlmm 95 GPIO_ACTIVE_HIGH>;
-		reset-gpios = <&pmi8994_gpios 4 GPIO_ACTIVE_LOW>;
+		interrupt-parent = <&tlmm>;
+		interrupts = <95 IRQ_TYPE_EDGE_FALLING>;
+		pinctrl-names = "default";
+		pinctrl-0 = <&uc120_int_default>;
+		usb-psy-name = "qcom-smbchg-usb";
+		orientation-gpios = <&pmi8994_gpios 8 GPIO_ACTIVE_HIGH>;
+
+		connector {
+			compatible = "usb-c-connector";
+			label = "USB-C";
+			power-role = "dual";
+			try-power-role = "sink";
+			data-role = "dual";
+			typec-power-opmode = "default";
+		};
 	};
 };
 
@@ -475,6 +581,15 @@
 		};
 	};
 
+	audio_mclk: clk_div1 {
+		pinconf {
+			pins = "gpio15";
+			function = PMIC_GPIO_FUNC_FUNC1;
+			power-source = <PM8994_GPIO_S4>;
+		};
+	};
+
+
 	divclk4_pin_a: divclk4-state {
 		pinconf {
 			pins = "gpio18";
@@ -483,6 +598,10 @@
 			bias-disable;
 		};
 	};
+};
+
+&pm8994_resin {
+	status = "okay";
 };
 
 &pm8994_pon {
@@ -501,24 +620,37 @@
 	};
 };
 
+/* Both OEM packs use a 330 kOhm ID resistor. Profiles are per-device. */
+&pmi8994_fg {
+	status = "okay";
+	qcom,batt-id-kohm = <330>;
+	qcom,batt-id-range-pct = <15>;
+	qcom,thermal-coefficients = [EC 85 76 4A FC 35];
+	qcom,warm-bat-decidegc = <450>;
+	qcom,hot-bat-decidegc = <550>;
+	qcom,cool-bat-decidegc = <(-50)>;
+	qcom,cold-bat-decidegc = <(-100)>;
+	qcom,resume-soc = <99>;
+	qcom,fg-iterm-ma = <200>;
+	qcom,fg-chg-iterm-ma = <100>;
+	qcom,fg-cutoff-voltage-mv = <2800>;
+};
+
+&pmi8994_smbchg {
+	status = "okay";
+};
+
+&usb3_dwc3 {
+	usb-psy-name = "qcom-smbchg-usb";
+};
+
 &pmi8994_gpios {
-	pinctrl-0 = <&hd3ss460_pol &hd3ss460_amsel &hd3ss460_en>;
+	pinctrl-0 = <&hd3ss460_amsel &hd3ss460_en>;
 	pinctrl-names = "default";
 
 	/*
 	 * This device uses a TI HD3SS460 Type-C MUX
-	 * As this device has no driver currently,
-	 * the configuration for USB Face Up is set-up here.
-	 *
-	 * TODO: remove once a driver is available
-	 * TODO: add VBUS GPIO 5
 	 */
-	hd3ss460_pol: pol-low-state {
-		pins = "gpio8";
-		function = PMIC_GPIO_FUNC_NORMAL;
-		qcom,drive-strength = <3>;
-		bias-pull-down;
-	};
 
 	hd3ss460_amsel: amsel-high-state {
 		pins = "gpio9";
@@ -540,6 +672,16 @@
 		regulator-min-microvolt = <980000>;
 		regulator-max-microvolt = <980000>;
 	};
+};
+
+&mmcc {
+	vdd-gfx-supply = <&vdd_gfx>;
+};
+
+
+&ocmem {
+	compatible = "qcom,msm8994-ocmem";
+	vdd-gfx-supply = <&vdd_gfx>;
 };
 
 &rpm_requests {
@@ -873,7 +1015,33 @@
 	cd-gpios = <&pm8994_gpios 8 GPIO_ACTIVE_LOW>;
 };
 
+&adsp_pil {
+	status = "okay";
+	memory-region = <&adsp_mem>;
+};
+
+&q6asmdai {
+	memory-region = <&audio_mem>;
+};
+
 &tlmm {
+	touch_pins: touch {
+		irq {
+			pins = "gpio77";
+			function = "gpio";
+			drive-strength = <8>;
+			bias-pull-up;
+			input-enable;
+		};
+		reset {
+			pins = "gpio38";
+			function = "gpio";
+			drive-strength = <8>;
+			bias-disable;
+			output-high;
+		};
+	};
+
 	grip_default: grip-default-state {
 		pins = "gpio39";
 		function = "gpio";
@@ -900,5 +1068,56 @@
 		function = "gpio";
 		drive-strength = <2>;
 		bias-disable;
+	};
+
+	uc120_int_default: uc120-int-default-state {
+		pins = "gpio95";
+		function = "gpio";
+		drive-strength = <2>;
+		bias-pull-up;
+		input-enable;
+	};
+
+	mdss_dsi_default: mdss-dsi-default-state {
+		pins = "gpio78";
+		function = "gpio";
+		drive-strength = <8>;
+		bias-disable;
+	};
+
+	mdss_dsi_sleep: mdss-dsi-sleep-state {
+		pins = "gpio78";
+		function = "gpio";
+		drive-strength = <2>;
+		bias-pull-down;
+	};
+
+	mdss_te_default: mdss-te-default-state {
+		pins = "gpio10";
+		function = "mdp_vsync";
+		drive-strength = <2>;
+		bias-pull-down;
+	};
+
+	mdss_te_sleep: mdss-te-sleep-state {
+		pins = "gpio10";
+		function = "mdp_vsync";
+		drive-strength = <2>;
+		bias-pull-down;
+	};
+
+	quat_mi2s_default: quat-mi2s-default-state {
+		pins = "gpio58", "gpio59", "gpio62";
+		function = "qua_mi2s";
+		drive-strength = <8>;
+		bias-disable;
+	};
+
+	wcd_intr_default: wcd-intr-default-state {
+		pins = "gpio72";
+		function = "gpio";
+		drive-strength = <2>;
+		bias-pull-down;
+		input-enable;
 	};
 };
