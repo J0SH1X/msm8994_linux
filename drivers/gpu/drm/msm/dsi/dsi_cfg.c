@@ -283,6 +283,27 @@ static const struct msm_dsi_host_cfg_ops msm_dsi_6g_host_ops = {
 	.calc_clk_rate = dsi_calc_clk_rate_6g,
 };
 
+/*
+ * msm8994: the MDSS SMMU (fd9cc000) only has context banks for MDP
+ * (SID 0/1); the DSI controllers are not SMMU masters and fetch command
+ * DMA using physical addresses.  A GPUVM iova programmed into
+ * REG_DSI_DMA_BASE points at an unmapped physical address and the cmd
+ * engine stalls forever (transfer never starts, all lanes stay in
+ * stopstate).  Use a coherent (physically contiguous) tx buffer and
+ * program its physical address instead.
+ */
+static const struct msm_dsi_host_cfg_ops msm_dsi_6g_phys_host_ops = {
+	.link_clk_set_rate = dsi_link_clk_set_rate_6g,
+	.link_clk_enable = dsi_link_clk_enable_6g,
+	.link_clk_disable = dsi_link_clk_disable_6g,
+	.clk_init_ver = NULL,
+	.tx_buf_alloc = dsi_tx_buf_alloc_v2,
+	.tx_buf_get = dsi_tx_buf_get_v2,
+	.tx_buf_put = NULL,
+	.dma_base_get = dsi_dma_base_get_v2,
+	.calc_clk_rate = dsi_calc_clk_rate_6g,
+};
+
 static const struct msm_dsi_host_cfg_ops msm_dsi_6g_v2_host_ops = {
 	.link_clk_set_rate = dsi_link_clk_set_rate_6g,
 	.link_clk_enable = dsi_link_clk_enable_6g,
@@ -323,7 +344,7 @@ static const struct msm_dsi_cfg_handler dsi_cfg_handlers[] = {
 	{MSM_DSI_VER_MAJOR_6G, MSM_DSI_6G_VER_MINOR_V1_3,
 		&msm8992_dsi_cfg, &msm_dsi_6g_host_ops},
 	{MSM_DSI_VER_MAJOR_6G, MSM_DSI_6G_VER_MINOR_V1_3,
-		&msm8994_dsi_cfg, &msm_dsi_6g_host_ops},
+		&msm8994_dsi_cfg, &msm_dsi_6g_phys_host_ops},
 	{MSM_DSI_VER_MAJOR_6G, MSM_DSI_6G_VER_MINOR_V1_3_1,
 		&msm8916_dsi_cfg, &msm_dsi_6g_host_ops},
 	{MSM_DSI_VER_MAJOR_6G, MSM_DSI_6G_VER_MINOR_V1_4_1,
