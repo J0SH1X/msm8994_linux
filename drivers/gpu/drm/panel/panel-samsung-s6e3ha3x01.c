@@ -27,6 +27,7 @@ struct dualmipi0 {
 	struct mipi_dsi_device *dsi[2];
 	struct regulator *supply;
 	struct gpio_desc *reset_gpio;
+	bool inherit_splash;
 };
 
 static inline struct dualmipi0 *to_dualmipi0(struct drm_panel *panel)
@@ -145,12 +146,20 @@ static int dualmipi0_prepare(struct drm_panel *panel)
 	struct device *dev = &ctx->dsi[0]->dev;
 	int ret;
 
-	printk("J0SH1X: SAMSUNG_S6E3HA3X01_5P7_1440P_CMD_DUAL0 driver prepare\n");
 	ret = regulator_enable(ctx->supply);
 	if (ret < 0) {
 		dev_err(dev, "Failed to enable regulator: %d\n", ret);
 		return ret;
 	}
+
+	/*
+	 * Cont-splash inherit (samsung,inherit-splash): the bootloader left
+	 * the panel initialized and displaying, so skip reset + init and only
+	 * claim it.  Without the property the normal reset/init sequence below
+	 * runs instead.
+	 */
+	if (ctx->inherit_splash)
+		return 0;
 
 	dualmipi0_reset(ctx);
 
@@ -287,7 +296,6 @@ static int dualmipi0_probe(struct mipi_dsi_device *dsi)
 		.node = NULL,
 	};
 
-	printk("J0SH1X: SAMSUNG_S6E3HA3X01_5P7_1440P_CMD_DUAL0 driver probe\n");
 	ctx = devm_drm_panel_alloc(dev, struct dualmipi0, panel,
 				   &dualmipi0_panel_funcs,
 				   DRM_MODE_CONNECTOR_DSI);
@@ -299,10 +307,19 @@ static int dualmipi0_probe(struct mipi_dsi_device *dsi)
 		return dev_err_probe(dev, PTR_ERR(ctx->supply),
 				     "Failed to get vci regulator\n");
 
-	ctx->reset_gpio = devm_gpiod_get(dev, "reset", GPIOD_OUT_HIGH);
+	/*
+	 * GPIOD_OUT_* selects the logical level, and the reset line is active
+	 * low: GPIOD_OUT_HIGH would drive it physical-low (asserted) from probe
+	 * onwards, putting a continuously-booted panel back into reset.
+	 * GPIOD_OUT_LOW keeps it deasserted, exactly as the bootloader left it.
+	 */
+	ctx->reset_gpio = devm_gpiod_get(dev, "reset", GPIOD_OUT_LOW);
 	if (IS_ERR(ctx->reset_gpio))
 		return dev_err_probe(dev, PTR_ERR(ctx->reset_gpio),
 				     "Failed to get reset-gpios\n");
+
+	ctx->inherit_splash = of_property_read_bool(dev->of_node,
+						    "samsung,inherit-splash");
 
 	/*
 	 * The panel is wired to two DSI controllers. The primary device probes
