@@ -334,6 +334,9 @@
 		vci-supply = <&pm8994_l19>;
 		reset-gpios = <&tlmm 78 GPIO_ACTIVE_LOW>;
 
+		/* keep the bootloader's panel state, only probe it */
+		samsung,inherit-splash;
+
 		ports {
 			#address-cells = <1>;
 			#size-cells = <0>;
@@ -368,7 +371,6 @@
 	vddio-supply = <&pm8994_l12>;
 	vcca-supply = <&pm8994_l28>;
 
-	qcom,dsi-phy-regulator-ldo-mode;
 };
 
 &dsi1 {
@@ -395,8 +397,6 @@
 
 	vddio-supply = <&pm8994_l12>;
 	vcca-supply = <&pm8994_l28>;
-
-	qcom,dsi-phy-regulator-ldo-mode;
 };
 
 &mmcc {
