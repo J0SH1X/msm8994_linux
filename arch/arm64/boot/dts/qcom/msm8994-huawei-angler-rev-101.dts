@@ -303,7 +303,7 @@
 };
 
 &gpu {
-	status = "disabled";
+	status = "okay";
 };
 
 &mdss {
