@@ -102,6 +102,18 @@ int msm_framebuffer_prepare(struct drm_framebuffer *fb, bool needs_dirtyfb)
 			msm_fb->iova[i] = 0;
 			ret = msm_gem_get_and_pin_iova(fb->obj[i], vm,
 						      &msm_fb->iova[i]);
+			/*
+			 * The translated pin is what the fbdev's own
+			 * STOLEN buffer avoids.  If we end up here the BO
+			 * was not physically contiguous, so on msm8994 the
+			 * pipe will read the iova as a raw physical
+			 * address and the image will be garbage.  Say so -
+			 * silently rendering noise is much worse.
+			 */
+			if (!ret)
+				drm_warn_once(fb->dev,
+					      "FB[%u]: plane %d not physically contiguous, using a translated pin; on msm8994 the MDP fetch pipe bypasses CB0 so this will look garbled\n",
+					      fb->base.id, i);
 		} else {
 			ret = 0;
 		}

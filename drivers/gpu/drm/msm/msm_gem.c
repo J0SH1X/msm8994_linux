@@ -203,12 +203,19 @@ static struct page **get_pages(struct drm_gem_object *obj)
 		 * TrustZone-owned (GR0 is XPU protected), so the fetch pipe
 		 * uses the IOVA as a plain physical address.  A scanout BO
 		 * that is physically contiguous *and* pinned at iova == phys
-		 * therefore works whether or not the SMMU translates.
-		 * MSM_BO_STOLEN (passed by msm_fbdev) asks for that; if CMA
-		 * cannot give us a contiguous block we fall back to shmem
-		 * pages and a translated pin.
+		 * therefore works whether or not the SMMU translates; a
+		 * discontiguous one only works with a translated pin, which
+		 * this pipe cannot honour - it renders as garbage.
+		 *
+		 * So ask for contiguity for every scanout candidate, not
+		 * just the fbdev's MSM_BO_STOLEN buffer: dumb buffers and
+		 * every KMS/GBM client also carry MSM_BO_SCANOUT, and
+		 * without this they get discontiguous shmem pages and a
+		 * garbled framebuffer (console fine, plymouth/phosh not).
+		 * If CMA cannot satisfy it we still fall back to shmem
+		 * pages, so nothing hard-fails.
 		 */
-		if (msm_obj->flags & MSM_BO_STOLEN) {
+		if (msm_obj->flags & (MSM_BO_STOLEN | MSM_BO_SCANOUT)) {
 			contig = dma_alloc_contiguous(dev->dev, obj->size,
 						      GFP_KERNEL | __GFP_NOWARN |
 						      __GFP_ZERO);
