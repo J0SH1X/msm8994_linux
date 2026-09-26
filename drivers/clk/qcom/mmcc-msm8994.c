@@ -2611,6 +2611,7 @@ static int oxili_gx_pd_power_on(struct generic_pm_domain *domain)
 
 static bool oxili_gpu_live;
 static bool oxili_pre_gpu_voted;
+static bool oxili_gx_voted;
 
 void msm8994_oxili_mark_gpu_live(void)
 {
@@ -2631,10 +2632,28 @@ int msm8994_oxili_pre_gpu_power(void)
 	if (!oxili_gx || !oxili_gx->pd.power_on || !oxili_cx_gdsc.pd.power_on)
 		return -ENODEV;
 
-	ret = oxili_gx->pd.power_on(&oxili_gx->pd);
-	if (ret)
-		return ret;
+	/*
+	 * GX is not referenced by any power-domains property, so genpd
+	 * never powers it off - only this function does, once.  Keep a
+	 * sticky flag so the repeated resumes coming out of the GPU SMMU
+	 * (ctx probes, msm_iommu_gpu_new(), the &gpu supplier link) do
+	 * not keep re-running the GDSC FSM and re-enabling the vdd-gfx
+	 * regulator underneath us.
+	 */
+	if (!oxili_gx_voted) {
+		ret = oxili_gx->pd.power_on(&oxili_gx->pd);
+		if (ret)
+			return ret;
+		oxili_gx_voted = true;
+	}
 
+	/*
+	 * CX *is* genpd-managed (the GPU SMMU holds a runtime-PM
+	 * reference on it), so it can be collapsed again by
+	 * genpd_runtime_suspend() while the GPU still believes it is
+	 * powered.  Re-vote it on every resume, otherwise the next
+	 * oxili_gfx3d_clk enable is answered with -EBUSY.
+	 */
 	ret = oxili_cx_gdsc.pd.power_on(&oxili_cx_gdsc.pd);
 	if (!ret)
 		oxili_pre_gpu_voted = true;

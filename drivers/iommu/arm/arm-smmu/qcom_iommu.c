@@ -105,6 +105,7 @@ struct qcom_iommu_dev {
 	void __iomem		*global_base;
 	u32			 sec_id;
 	bool			 non_secure;
+	bool			 clks_enabled;   /* bulk is prepared+enabled */
 	u8			 max_asid;
 	struct qcom_iommu_ctx	*ctxs[];   /* indexed by asid */
 };
@@ -1143,6 +1144,7 @@ static int qcom_iommu_device_probe(struct platform_device *pdev)
 		dev_err(dev, "failed to get iface clock\n");
 		return PTR_ERR(clk);
 	}
+	qcom_iommu->clks[CLK_IFACE].id = "iface";
 	qcom_iommu->clks[CLK_IFACE].clk = clk;
 
 	/* 8994 GPU SMMU has no AXI bus clock (downstream: iface+core only) */
@@ -1151,6 +1153,7 @@ static int qcom_iommu_device_probe(struct platform_device *pdev)
 		dev_err(dev, "failed to get bus clock\n");
 		return PTR_ERR(clk);
 	}
+	qcom_iommu->clks[CLK_BUS].id = "bus";
 	qcom_iommu->clks[CLK_BUS].clk = clk;
 
 	clk = devm_clk_get_optional(dev, "alt_iface");
@@ -1158,6 +1161,7 @@ static int qcom_iommu_device_probe(struct platform_device *pdev)
 		dev_err(dev, "failed to get alt_iface clock\n");
 		return PTR_ERR(clk);
 	}
+	qcom_iommu->clks[CLK_ALT_IFACE].id = "alt_iface";
 	qcom_iommu->clks[CLK_ALT_IFACE].clk = clk;
 
 	clk = devm_clk_get_optional(dev, "alt_bus");
@@ -1165,6 +1169,7 @@ static int qcom_iommu_device_probe(struct platform_device *pdev)
 		dev_err(dev, "failed to get alt_bus clock\n");
 		return PTR_ERR(clk);
 	}
+	qcom_iommu->clks[CLK_ALT_BUS].id = "alt_bus";
 	qcom_iommu->clks[CLK_ALT_BUS].clk = clk;
 
 	clk = devm_clk_get_optional(dev, "tbu");
@@ -1172,6 +1177,7 @@ static int qcom_iommu_device_probe(struct platform_device *pdev)
 		dev_err(dev, "failed to get tbu clock\n");
 		return PTR_ERR(clk);
 	}
+	qcom_iommu->clks[CLK_TBU].id = "tbu";
 	qcom_iommu->clks[CLK_TBU].clk = clk;
 
 	if (of_property_read_u32(dev->of_node, "qcom,iommu-secure-id",
@@ -1255,30 +1261,52 @@ static int __maybe_unused qcom_iommu_resume(struct device *dev)
 	 * GPU SMMU is a runtime supplier of &gpu. Second resume
 	 * (TIMESTAMP after autosuspend) ran scm(18) with GX off:
 	 * ret=-22 then RBBM read SEA. 3.10 rails before SMMU.
-	 * Do not uncollapse at bind (flag is clear; clk_bulk still
-	 * fails). After first hw_init, GX+CX before these clocks.
+	 *
+	 * The "tbu" clock of this instance is oxili_gfx3d_clk, and that
+	 * branch clock stays gated while the OXILI GX domain is collapsed
+	 * (the domain's cxcs[] holds the gfx3d collapse bit).  So GX+CX
+	 * have to be up *before* the clock bulk below - not only once the
+	 * GPU is live.  Otherwise every resume from the ctx probes, from
+	 * msm_iommu_gpu_new() and from the &gpu supplier link fails with
+	 * -EBUSY, the SMMU is left half programmed, and no later
+	 * (re)resume can recover it.
 	 */
 	if (qcom_iommu_is_msm8994_gpu(dev)) {
-		ret = msm8994_oxili_pre_gpu_power_if_live();
+		ret = msm8994_oxili_pre_gpu_power();
 		if (ret)
 			return ret;
 	}
 
 	ret = clk_bulk_prepare_enable(CLK_NUM, qcom_iommu->clks);
-	if (ret < 0)
+	if (ret < 0) {
+		dev_err_ratelimited(dev, "failed to enable SMMU clocks: %d\n", ret);
 		return ret;
+	}
+
+	/* from here on the bulk is held, suspend must undo it */
+	qcom_iommu->clks_enabled = true;
 
 	/*
 	 * MSM8994 GPU SMMU is TZ-managed (3.10 qcom,iommu-secure-id
 	 * = <18>). Mainline DT omits that, so non_secure would
-	 * reset_ns (NS GR0) and abort. scm+BFB instead. Do not scm
-	 * at bind (create_vm) before GX is voted.
+	 * reset_ns (NS GR0) and abort. scm+BFB instead.
 	 */
 	if (qcom_iommu_is_msm8994_gpu(dev) &&
 	    msm8994_oxili_pre_gpu_voted()) {
+		/*
+		 * Downstream passes the context bank number as "spare"
+		 * (msm_iommu_sec_program_iommu: scm_restore_sec_cfg(sec_id,
+		 * ctx->num)), i.e. gfx3d_user/CB0 is 0 here.  Keep the
+		 * call best-effort: the secure world has already programmed
+		 * the SMR/S2CR pairs for gfx3d_user/gfx3d_priv during boot,
+		 * so failing the whole resume on it would only keep the GPU
+		 * off.  Report it instead.
+		 */
 		ret = qcom_scm_restore_sec_cfg(18, 0);
 		if (ret)
-			return ret;
+			dev_warn_ratelimited(dev,
+					     "scm restore_sec_cfg(18) failed: %d\n",
+					     ret);
 	} else if (qcom_iommu->non_secure) {
 		ret = qcom_iommu_reset_ns(qcom_iommu);
 		if (ret)
@@ -1326,14 +1354,19 @@ static int __maybe_unused qcom_iommu_resume(struct device *dev)
 		qcom_iommu_program_ctx(qcom_iommu, priv);
 	}
 
-	return ret;
+	/* clocks are enabled and the ctx banks are programmed */
+	return 0;
 }
 
 static int __maybe_unused qcom_iommu_suspend(struct device *dev)
 {
 	struct qcom_iommu_dev *qcom_iommu = dev_get_drvdata(dev);
 
-	clk_bulk_disable_unprepare(CLK_NUM, qcom_iommu->clks);
+	/* don't drop a refcount for a bulk that a failed resume never took */
+	if (qcom_iommu->clks_enabled) {
+		qcom_iommu->clks_enabled = false;
+		clk_bulk_disable_unprepare(CLK_NUM, qcom_iommu->clks);
+	}
 
 	return 0;
 }

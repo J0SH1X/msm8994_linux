@@ -1,0 +1,8 @@
+bootsize = 0x1f36000
+pagesize = 0x1000
+kerneladdr = 0x8000
+ramdiskaddr = 0x2000000
+secondaddr = 0xf00000
+tagsaddr = 0x1e00000
+name = 
+cmdline = splash plymouth.ignore-serial-consoles plymouth.prefer-fbcon console=ttyMSM0,115200n8 console=tty0 earlycon=msm_serial_dm,0xf991e000 pmos_boot_uuid=d058351b-20ea-4c8d-9182-587af98fc148 pmos_root_uuid=4a514648-e5d3-4cda-83bc-d301a6882f97 pmos_rootfsopts=defaults
